@@ -75,6 +75,38 @@ export const useAuthStore = create<AuthState>()(
              return;
           }
           
+          // 添加第二个测试账户支持
+          if (username === 'test2' && password === 'test456') {
+            const testUser2: User = {
+              id: 2,
+              username: 'test2',
+              email: 'test2@example.com',
+              avatar: '',
+              status: 'online',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            };
+            
+            const testToken2 = 'test_token_2_' + Date.now();
+            
+            set({
+              isAuthenticated: true,
+              user: testUser2,
+              token: testToken2,
+              refreshToken: 'test_refresh_token_2',
+              isLoading: false,
+              error: null
+            });
+            
+            try {
+               await databaseService.saveUser(testUser2);
+             } catch (error) {
+               console.warn('Failed to save user to database:', error);
+             }
+             notificationService.showSuccessNotification('第二个测试账户登录成功！');
+             return;
+          }
+          
           const response: AuthResponse = await apiService.login({ username, password });
           
           // 保存认证信息

@@ -9,6 +9,7 @@ import Sidebar from './components/Sidebar';
 import ContactList from './components/ContactList';
 import ChatWindow from './components/ChatWindow';
 import Settings from './components/Settings';
+import ContactManager from './components/ContactManager';
 import { Toaster } from 'react-hot-toast';
 import { StagewiseToolbar } from '@stagewise/toolbar-react';
 import ReactPlugin from '@stagewise-plugins/react';
@@ -18,9 +19,16 @@ type ActivePage = 'chat' | 'contacts' | 'notifications' | 'settings';
 
 function App() {
   const { isAuthenticated, user, checkAuthStatus } = useAuthStore();
-  const { setConnectionStatus, addMessage, updateUserStatus, setTypingStatus } = useChatStore();
+  const { setConnectionStatus, addMessage, updateUserStatus, setTypingStatus, setActiveContact } = useChatStore();
   const [activePage, setActivePage] = useState<ActivePage>('chat');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+
+  // 从联系人管理器开始聊天
+  const handleStartChat = (contactId: number) => {
+    setActiveContact(contactId);
+    setActivePage('chat');
+  };
 
   useEffect(() => {
     // 初始化数据库
@@ -94,16 +102,17 @@ function App() {
       <div className="flex flex-1 min-w-0">
         {activePage === 'chat' && (
           <>
-            <ContactList className="hidden lg:block w-80 xl:w-96 flex-shrink-0 border-r border-base-300" />
+            <ContactList className="w-80 xl:w-96 flex-shrink-0 border-r border-base-300" />
             <ChatWindow className="flex-1 min-w-0" />
           </>
         )}
         {activePage === 'contacts' && (
-          <div className="flex-1 flex items-center justify-center p-4">
-            <div className="text-center max-w-md">
-              <h2 className="text-xl sm:text-2xl font-bold text-base-content mb-2">联系人管理</h2>
-              <p className="text-sm sm:text-base text-base-content/70">联系人管理功能正在开发中...</p>
-            </div>
+          <div className="flex-1 min-w-0">
+            <ContactManager 
+              isOpen={true}
+              onClose={() => {}}
+              onStartChat={handleStartChat}
+            />
           </div>
         )}
         {activePage === 'notifications' && (
@@ -131,6 +140,8 @@ function App() {
           }
         }}
       />
+      
+
       
       {/* Stagewise Toolbar */}
       <StagewiseToolbar config={{ plugins: [ReactPlugin] }} />
