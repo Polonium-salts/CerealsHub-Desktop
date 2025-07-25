@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 自定义样式 */
+@layer components {
+  .message-bubble {
+    @apply max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg px-3 sm:px-4 py-2 rounded-lg text-sm sm:text-base;
+  }
+  
+  .message-bubble-sent {
+    @apply bg-primary text-white ml-auto;
+  }
+  
+  .message-bubble-received {
+    @apply bg-gray-200 text-gray-800;
+  }
+  
+  .contact-item {
+    @apply flex items-center p-2 sm:p-3 hover:bg-base-200 cursor-pointer transition-colors duration-200;
+  }
+  
+  .contact-item.active {
+    @apply bg-primary/10 border-r-2 border-primary;
+  }
+  
+  .chat-input {
+    @apply input input-bordered w-full focus:outline-none focus:ring-2 focus:ring-primary text-sm sm:text-base;
+  }
+  
+  .sidebar {
+    @apply bg-base-100 border-r border-base-300 transition-all duration-300;
+  }
+  
+  .chat-area {
+    @apply flex-1 flex flex-col bg-base-50 min-w-0;
+  }
+  
+  .message-list {
+    @apply flex-1 overflow-y-auto p-2 sm:p-4 space-y-2;
+  }
+  
+  .typing-indicator {
+    @apply flex items-center space-x-1 text-gray-500 text-xs sm:text-sm;
+  }
+  
+  .online-indicator {
+    @apply w-2 h-2 sm:w-3 sm:h-3 bg-green-500 rounded-full;
+  }
+  
+  .offline-indicator {
+    @apply w-2 h-2 sm:w-3 sm:h-3 bg-gray-400 rounded-full;
+  }
+  
+  /* 响应式容器 */
+  .responsive-container {
+    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+  
+  /* 响应式网格 */
+  .responsive-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6;
+  }
+  
+  /* 响应式文本 */
+  .responsive-text {
+    @apply text-sm sm:text-base lg:text-lg;
+  }
+  
+  .responsive-title {
+    @apply text-lg sm:text-xl lg:text-2xl xl:text-3xl font-bold;
+  }
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 基础样式 */
