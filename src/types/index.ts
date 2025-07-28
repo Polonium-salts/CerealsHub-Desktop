@@ -26,6 +26,40 @@ export interface Contact {
   user: User;
 }
 
+// 群聊类型
+export interface Group {
+  id: string;
+  name: string;
+  description?: string;
+  avatar_url?: string;
+  creator_id: number;
+  member_count: number;
+  max_members?: number;
+  is_private: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// 群聊成员类型
+export interface GroupMember {
+  group_id: string;
+  user_id: number;
+  role: 'admin' | 'member';
+  joined_at: string;
+  user: User;
+}
+
+// 群聊联系人类型（扩展Contact以支持群聊）
+export interface GroupContact {
+  contact_id: number;
+  type: 'user' | 'group';
+  added_at: string;
+  // 用户联系人
+  user?: User;
+  // 群聊联系人
+  group?: Group;
+}
+
 // 认证令牌类型
 export interface AuthToken {
   id: number;

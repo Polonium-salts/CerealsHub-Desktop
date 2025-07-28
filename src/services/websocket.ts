@@ -3,6 +3,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
 import { databaseService } from './database';
 import { notificationService } from './notification';
+import { config } from '../config/oauth';
 
 class WebSocketService {
   private ws: WebSocket | null = null;
@@ -33,7 +34,7 @@ class WebSocketService {
         throw new Error('No authentication token available');
       }
 
-      const wsUrl = `wss://capi.cereals.fun/ws?token=${encodeURIComponent(token)}`;
+      const wsUrl = `${config.wsUrl}?token=${encodeURIComponent(token)}`;
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = this.onOpen.bind(this);

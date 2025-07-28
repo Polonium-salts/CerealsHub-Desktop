@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Message, Contact, ChatSession, Notification } from '../types';
+import { Message, Contact, ChatSession, Notification, Group, GroupContact, GroupMember } from '../types';
 import { databaseService } from '../services/database';
 import { apiService } from '../services/api';
 import { notificationService } from '../services/notification';
@@ -7,14 +7,17 @@ import { notificationService } from '../services/notification';
 interface ChatState {
   // 状态
   contacts: Contact[];
-  chatSessions: Record<number, ChatSession>;
-  activeContactId: number | null;
+  groups: Group[];
+  groupContacts: GroupContact[];
+  chatSessions: Record<number | string, ChatSession>;
+  activeContactId: number | string | null;
   isConnected: boolean;
   notifications: Notification[];
   isLoading: boolean;
   error: string | null;
   searchQuery: string;
   filteredContacts: Contact[];
+  filteredGroups: Group[];
 
   // 动作
   // 联系人管理
@@ -23,13 +26,19 @@ interface ChatState {
   removeContact: (contactId: number) => Promise<void>;
   searchContacts: (query: string) => void;
   
+  // 群聊管理
+  loadGroups: () => Promise<void>;
+  joinGroup: (groupId: string) => Promise<void>;
+  leaveGroup: (groupId: string) => Promise<void>;
+  getGroupInfo: (groupId: string) => Promise<Group | null>;
+  
   // 聊天会话管理
-  setActiveContact: (contactId: number | null) => void;
-  loadChatSession: (contactId: number) => Promise<void>;
+  setActiveContact: (contactId: number | string | null) => void;
+  loadChatSession: (contactId: number | string) => Promise<void>;
   addMessage: (message: Message) => void;
-  sendMessage: (contactId: number, content: string, messageType?: 'text' | 'image' | 'file') => Promise<void>;
+  sendMessage: (contactId: number | string, content: string, messageType?: 'text' | 'image' | 'file') => Promise<void>;
   markMessageAsRead: (messageId: number) => void;
-  markAllMessagesAsRead: (contactId: number) => Promise<void>;
+  markAllMessagesAsRead: (contactId: number | string) => Promise<void>;
   
   // 实时状态
   setConnectionStatus: (isConnected: boolean) => void;
@@ -50,6 +59,8 @@ interface ChatState {
 export const useChatStore = create<ChatState>((set, get) => ({
   // 初始状态
   contacts: [],
+  groups: [],
+  groupContacts: [],
   chatSessions: {},
   activeContactId: null,
   isConnected: false,
@@ -58,6 +69,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   error: null,
   searchQuery: '',
   filteredContacts: [],
+  filteredGroups: [],
 
   // 加载联系人列表
   loadContacts: async () => {
@@ -77,11 +89,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
         console.warn('Failed to save contacts to database:', error);
       }
       
-      set({ 
-        contacts: apiContacts, 
-        filteredContacts: apiContacts,
-        isLoading: false 
-      });
+      // 同时加载群聊信息
+      try {
+        const groups = await apiService.getGroups();
+        set({ 
+          contacts: apiContacts, 
+          filteredContacts: apiContacts,
+          groups: groups,
+          filteredGroups: groups,
+          isLoading: false 
+        });
+      } catch (groupError) {
+        console.warn('Failed to load groups:', groupError);
+        set({ 
+          contacts: apiContacts, 
+          filteredContacts: apiContacts,
+          isLoading: false 
+        });
+      }
       
     } catch (error: any) {
       console.error('Failed to load contacts from API, trying local database:', error);
@@ -92,6 +117,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({ 
           contacts: localContacts, 
           filteredContacts: localContacts,
+          groups: [], // 本地数据库暂不支持群聊缓存
+          filteredGroups: [],
           isLoading: false,
           error: 'Unable to sync with server, showing cached data'
         });
@@ -164,22 +191,92 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // 搜索联系人
   searchContacts: (query: string) => {
-    const { contacts } = get();
+    const { contacts, groups } = get();
     
     if (!query.trim()) {
-      set({ searchQuery: '', filteredContacts: contacts });
+      set({ searchQuery: '', filteredContacts: contacts, filteredGroups: groups });
       return;
     }
     
-    const filtered = contacts.filter(contact => 
+    const filteredContacts = contacts.filter(contact => 
       contact.user.username.toLowerCase().includes(query.toLowerCase())
     );
     
-    set({ searchQuery: query, filteredContacts: filtered });
+    const filteredGroups = groups.filter(group => 
+      group.name.toLowerCase().includes(query.toLowerCase())
+    );
+    
+    set({ searchQuery: query, filteredContacts, filteredGroups });
+  },
+
+  // 加载群聊列表
+  loadGroups: async () => {
+    try {
+      const groups = await apiService.getGroups();
+      set({ groups, filteredGroups: groups });
+    } catch (error: any) {
+      console.error('Failed to load groups:', error);
+      const errorMessage = error.response?.data?.message || '加载群聊列表失败';
+      notificationService.showErrorNotification(errorMessage);
+    }
+  },
+
+  // 加入群聊
+  joinGroup: async (groupId: string) => {
+    try {
+      await apiService.joinGroup(groupId);
+      
+      // 重新加载群聊列表
+      await get().loadGroups();
+      
+      notificationService.showSuccessNotification('成功加入群聊');
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || '加入群聊失败';
+      notificationService.showErrorNotification(errorMessage);
+      throw error;
+    }
+  },
+
+  // 离开群聊
+  leaveGroup: async (groupId: string) => {
+    try {
+      await apiService.leaveGroup(groupId);
+      
+      const { groups, chatSessions, activeContactId } = get();
+      const updatedGroups = groups.filter(g => g.id !== groupId);
+      
+      // 移除聊天会话
+      const updatedSessions = { ...chatSessions };
+      delete updatedSessions[groupId];
+      
+      set({ 
+        groups: updatedGroups,
+        filteredGroups: updatedGroups,
+        chatSessions: updatedSessions,
+        activeContactId: activeContactId === groupId ? null : activeContactId
+      });
+      
+      notificationService.showSuccessNotification('已离开群聊');
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || '离开群聊失败';
+      notificationService.showErrorNotification(errorMessage);
+      throw error;
+    }
+  },
+
+  // 获取群聊信息
+  getGroupInfo: async (groupId: string): Promise<Group | null> => {
+    try {
+      const group = await apiService.getGroupInfo(groupId);
+      return group;
+    } catch (error: any) {
+      console.error('Failed to get group info:', error);
+      return null;
+    }
   },
 
   // 设置活跃联系人
-  setActiveContact: (contactId: number | null) => {
+  setActiveContact: (contactId: number | string | null) => {
     set({ activeContactId: contactId });
     
     if (contactId) {
@@ -192,7 +289,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // 加载聊天会话
-  loadChatSession: async (contactId: number) => {
+  loadChatSession: async (contactId: number | string) => {
     const { chatSessions } = get();
     
     // 如果会话已存在，不重复加载
@@ -201,17 +298,49 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     
     try {
-      // 从本地数据库加载消息
-      const messages = await databaseService.getMessages(1, contactId, 50); // 假设当前用户ID为1
+      let messages: any[] = [];
+      let contact: any = null;
+      let unreadCount = 0;
       
-      // 获取联系人信息
-      const contact = await databaseService.getUser(contactId);
+      if (typeof contactId === 'string') {
+        // 群聊会话
+        try {
+          const groupMessages = await apiService.getGroupMessages(contactId, { page: 1, limit: 50 });
+          messages = groupMessages.data.reverse();
+          
+          const groupInfo = await get().getGroupInfo(contactId);
+          if (groupInfo) {
+            contact = {
+              id: groupInfo.id,
+              username: groupInfo.name,
+              avatar_url: groupInfo.avatar_url,
+              status: 'online',
+              created_at: groupInfo.created_at
+            };
+          }
+        } catch (error) {
+          console.warn('Failed to load group messages from API:', error);
+          // 创建空的群聊会话
+          contact = {
+            id: contactId,
+            username: `群聊 ${contactId}`,
+            avatar_url: '',
+            status: 'online',
+            created_at: new Date().toISOString()
+          };
+        }
+      } else {
+        // 用户会话
+        messages = await databaseService.getMessages(1, contactId, 50);
+        contact = await databaseService.getUser(contactId);
+        unreadCount = await databaseService.getUnreadMessageCount(1, contactId);
+      }
       
       if (contact) {
         const session: ChatSession = {
           contact,
           messages: messages.reverse(), // 按时间正序排列
-          unreadCount: await databaseService.getUnreadMessageCount(1, contactId),
+          unreadCount,
           lastMessage: messages[0] || undefined,
           isTyping: false
         };
@@ -251,7 +380,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // 添加消息
   addMessage: (message: Message) => {
     const { chatSessions } = get();
-    const contactId = message.sender_id === 1 ? message.receiver_id : message.sender_id; // 假设当前用户ID为1
+    let contactId: number | string;
+    
+    // 判断是群聊消息还是私聊消息
+    if (typeof message.receiver_id === 'string') {
+      // 群聊消息
+      contactId = message.receiver_id;
+    } else {
+      // 私聊消息
+      contactId = message.sender_id === 1 ? message.receiver_id : message.sender_id; // 假设当前用户ID为1
+    }
     
     const session = chatSessions[contactId];
     if (session) {
@@ -272,12 +410,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // 发送消息
-  sendMessage: async (contactId: number, content: string, messageType: 'text' | 'image' | 'file' = 'text') => {
+  sendMessage: async (contactId: number | string, content: string, messageType: 'text' | 'image' | 'file' = 'text') => {
     try {
-      const message = await apiService.sendMessage(contactId, content, messageType);
+      let message;
       
-      // 保存到本地数据库
-      await databaseService.saveMessage(message);
+      if (typeof contactId === 'string') {
+        // 发送群聊消息
+        message = await apiService.sendGroupMessage(contactId, content, messageType);
+      } else {
+        // 发送私聊消息
+        message = await apiService.sendMessage(contactId, content, messageType);
+        // 保存到本地数据库
+        await databaseService.saveMessage(message);
+      }
       
       // 添加到聊天会话
       get().addMessage(message);
@@ -320,15 +465,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // 标记所有消息为已读
-  markAllMessagesAsRead: async (contactId: number) => {
+  markAllMessagesAsRead: async (contactId: number | string) => {
     try {
-      await apiService.markAllMessagesAsRead(contactId);
-      
-      try {
-        await databaseService.markAllMessagesAsRead(1, contactId); // 假设当前用户ID为1
-      } catch (dbError) {
-        console.warn('Failed to mark messages as read in database:', dbError);
+      if (typeof contactId === 'number') {
+        await apiService.markAllMessagesAsRead(contactId);
+        
+        try {
+          await databaseService.markAllMessagesAsRead(1, contactId); // 假设当前用户ID为1
+        } catch (dbError) {
+          console.warn('Failed to mark messages as read in database:', dbError);
+        }
       }
+      // 群聊消息暂时不支持标记已读功能
       
       const { chatSessions } = get();
       const session = chatSessions[contactId];

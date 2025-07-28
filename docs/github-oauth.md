@@ -2,7 +2,7 @@
 
 ## 概述
 
-本应用支持使用 GitHub 账户进行登录，用户可以通过 GitHub OAuth 快速登录而无需注册新账户。
+本应用支持使用 GitHub 账户进行登录，用户可以通过 GitHub OAuth 快速登录而无需注册新账户。应用采用前端直接处理 GitHub OAuth 流程，无需后端服务器参与认证过程。
 
 ## 配置步骤
 
@@ -22,12 +22,12 @@
 
 #### 开发环境
 ```
-http://localhost:1420/
+http://localhost:1420/auth/github/callback
 ```
 
 #### 生产环境
 ```
-https://cereals.fun/
+https://cereals.fun/auth/github/callback
 ```
 
 ### 3. 环境变量配置
@@ -37,11 +37,13 @@ https://cereals.fun/
    cp .env.example .env
    ```
 
-2. 在 `.env` 文件中配置 GitHub OAuth 客户端 ID：
+2. 在 `.env` 文件中配置 GitHub OAuth 信息：
    ```env
    VITE_GITHUB_CLIENT_ID=your_actual_github_client_id
-   VITE_APP_URL=http://localhost:1420/
+   VITE_GITHUB_CLIENT_SECRET=your_actual_github_client_secret
    ```
+
+**注意**: 在桌面应用中使用客户端密钥存在安全风险，建议在生产环境中考虑使用 PKCE 流程。
 
 ## 使用地址
 

@@ -5,6 +5,7 @@ import { Contact } from '../types';
 import { formatDistanceToNow } from 'date-fns';
 import { notificationService } from '../services/notification';
 import AddContact from './AddContact';
+import JoinGroup from './JoinGroup';
 
 interface ContactManagerProps {
   isOpen: boolean;
@@ -13,12 +14,14 @@ interface ContactManagerProps {
 }
 
 const ContactManager: React.FC<ContactManagerProps> = ({ isOpen, onClose, onStartChat }) => {
-  const { contacts, removeContact, loadContacts } = useChatStore();
+  const { contacts, groups, removeContact, loadContacts, loadGroups } = useChatStore();
   const { user } = useAuthStore();
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [showAddContact, setShowAddContact] = useState(false);
+  const [showJoinGroup, setShowJoinGroup] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<'contacts' | 'groups'>('contacts');
 
   // 删除联系人
   const handleDeleteContact = async (contactId: number) => {
@@ -39,10 +42,19 @@ const ContactManager: React.FC<ContactManagerProps> = ({ isOpen, onClose, onStar
   const handleRefresh = async () => {
     try {
       await loadContacts();
+      if (activeTab === 'groups') {
+        await loadGroups();
+      }
       notificationService.showSuccessNotification('联系人列表已刷新');
     } catch (error) {
       console.error('Refresh contacts failed:', error);
     }
+  };
+
+  const handleJoinGroupSuccess = () => {
+    setShowJoinGroup(false);
+    loadContacts();
+    loadGroups();
   };
 
   const getStatusColor = (status: string) => {
@@ -83,11 +95,37 @@ const ContactManager: React.FC<ContactManagerProps> = ({ isOpen, onClose, onStar
             <h3 className="font-bold text-xl">联系人管理</h3>
           </div>
 
+          {/* 标签页 */}
+          <div className="flex mb-4 border-b border-base-200">
+            <button
+              onClick={() => setActiveTab('contacts')}
+              className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
+                activeTab === 'contacts'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-base-content/70 hover:text-base-content'
+              }`}
+            >
+              联系人
+            </button>
+            <button
+              onClick={() => setActiveTab('groups')}
+              className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
+                activeTab === 'groups'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-base-content/70 hover:text-base-content'
+              }`}
+            >
+              群聊
+            </button>
+          </div>
+
           <div className="flex h-full">
             {/* 左侧联系人列表 */}
             <div className="w-1/2 pr-4 border-r border-base-200">
               <div className="flex justify-between items-center mb-4">
-                <h4 className="font-semibold text-lg">我的联系人 ({contacts.length})</h4>
+                <h4 className="font-semibold text-lg">
+                  {activeTab === 'contacts' ? `我的联系人 (${contacts.length})` : `我的群聊 (${groups?.length || 0})`}
+                </h4>
                 <div className="flex gap-2">
                   <button 
                     className="btn btn-sm btn-outline"
@@ -98,73 +136,137 @@ const ContactManager: React.FC<ContactManagerProps> = ({ isOpen, onClose, onStar
                     </svg>
                     刷新
                   </button>
-                  <button 
-                    className="btn btn-sm btn-primary"
-                    onClick={() => setShowAddContact(true)}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                    添加联系人
-                  </button>
+                  {activeTab === 'contacts' ? (
+                    <button 
+                      className="btn btn-sm btn-primary"
+                      onClick={() => setShowAddContact(true)}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                      添加联系人
+                    </button>
+                  ) : (
+                    <button 
+                      className="btn btn-sm btn-success"
+                      onClick={() => setShowJoinGroup(true)}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                      加入群聊
+                    </button>
+                  )}
                 </div>
               </div>
 
               <div className="space-y-2 max-h-96 overflow-y-auto">
-                {contacts.length === 0 ? (
-                  <div className="text-center py-8 text-base-content/50">
-                    <svg className="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                    <p className="text-lg font-medium mb-2">暂无联系人</p>
-                    <p className="text-sm">点击"添加联系人"开始添加好友</p>
-                  </div>
-                ) : (
-                  contacts.map((contact) => (
-                    <div
-                      key={contact.contact_id}
-                      className={`p-3 rounded-lg cursor-pointer transition-all duration-200 border ${
-                        selectedContact?.contact_id === contact.contact_id
-                          ? 'bg-primary/10 border-primary'
-                          : 'border-base-200 hover:bg-base-100'
-                      }`}
-                      onClick={() => setSelectedContact(contact)}
-                    >
-                      <div className="flex items-center space-x-3">
-                        {/* 头像 */}
-                        <div className="relative">
-                          <div className="avatar">
-                            <div className="w-12 h-12 rounded-full">
-                              {contact.user.avatar_url ? (
-                                <img 
-                                  src={contact.user.avatar_url} 
-                                  alt={contact.user.username}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <div className="bg-primary/20 flex items-center justify-center w-full h-full text-primary font-semibold">
-                                  {contact.user.username.charAt(0).toUpperCase()}
-                                </div>
-                              )}
+                {activeTab === 'contacts' ? (
+                  contacts.length === 0 ? (
+                    <div className="text-center py-8 text-base-content/50">
+                      <svg className="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                      <p className="text-lg font-medium mb-2">暂无联系人</p>
+                      <p className="text-sm">点击"添加联系人"开始添加好友</p>
+                    </div>
+                  ) : (
+                    contacts.map((contact) => (
+                      <div
+                        key={contact.contact_id}
+                        className={`p-3 rounded-lg cursor-pointer transition-all duration-200 border ${
+                          selectedContact?.contact_id === contact.contact_id
+                            ? 'bg-primary/10 border-primary'
+                            : 'border-base-200 hover:bg-base-100'
+                        }`}
+                        onClick={() => setSelectedContact(contact)}
+                      >
+                        <div className="flex items-center space-x-3">
+                          {/* 头像 */}
+                          <div className="relative">
+                            <div className="avatar">
+                              <div className="w-12 h-12 rounded-full">
+                                {contact.user.avatar_url ? (
+                                  <img 
+                                    src={contact.user.avatar_url} 
+                                    alt={contact.user.username}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="bg-primary/20 flex items-center justify-center w-full h-full text-primary font-semibold">
+                                    {contact.user.username.charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                              </div>
                             </div>
+                            
+                            {/* 在线状态指示器 */}
+                            <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-base-100 ${getStatusColor(contact.user.status)}`}></div>
                           </div>
-                          
-                          {/* 在线状态指示器 */}
-                          <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-base-100 ${getStatusColor(contact.user.status)}`}></div>
-                        </div>
 
-                        {/* 联系人信息 */}
-                        <div className="flex-1 min-w-0">
-                          <h5 className="font-medium text-base-content truncate">
-                            {contact.user.username}
-                          </h5>
-                          <p className="text-sm text-base-content/70">
-                            {getStatusText(contact.user.status)}
-                          </p>
+                          {/* 联系人信息 */}
+                          <div className="flex-1 min-w-0">
+                            <h5 className="font-medium text-base-content truncate">
+                              {contact.user.username}
+                            </h5>
+                            <p className="text-sm text-base-content/70">
+                              {getStatusText(contact.user.status)}
+                            </p>
+                          </div>
                         </div>
                       </div>
+                    ))
+                  )
+                ) : (
+                  groups?.length === 0 ? (
+                    <div className="text-center py-8 text-base-content/50">
+                      <svg className="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                      <p className="text-lg font-medium mb-2">暂无群聊</p>
+                      <p className="text-sm">点击"加入群聊"开始加入群组</p>
                     </div>
-                  ))
+                  ) : (
+                    groups?.map((group) => (
+                      <div
+                        key={group.id}
+                        className="p-3 rounded-lg cursor-pointer transition-all duration-200 border border-base-200 hover:bg-base-100"
+                      >
+                        <div className="flex items-center space-x-3">
+                          {/* 群聊头像 */}
+                          <div className="relative">
+                            <div className="avatar">
+                              <div className="w-12 h-12 rounded-full">
+                                {group.avatar_url ? (
+                                  <img 
+                                    src={group.avatar_url} 
+                                    alt={group.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="bg-success/20 flex items-center justify-center w-full h-full text-success font-semibold">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                    </svg>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 群聊信息 */}
+                          <div className="flex-1 min-w-0">
+                            <h5 className="font-medium text-base-content truncate">
+                              {group.name}
+                            </h5>
+                            <p className="text-sm text-base-content/70">
+                              {group.member_count} 成员
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )
                 )}
               </div>
             </div>
@@ -310,6 +412,13 @@ const ContactManager: React.FC<ContactManagerProps> = ({ isOpen, onClose, onStar
       <AddContact 
         isOpen={showAddContact}
         onClose={() => setShowAddContact(false)}
+      />
+
+      {/* 加入群聊对话框 */}
+      <JoinGroup 
+        isOpen={showJoinGroup}
+        onClose={() => setShowJoinGroup(false)}
+        onSuccess={handleJoinGroupSuccess}
       />
     </>
   );

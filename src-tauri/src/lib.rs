@@ -53,6 +53,53 @@ pub fn run() {
                 );
             ",
             kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "create_group_tables",
+            sql: "
+                CREATE TABLE IF NOT EXISTS groups (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    avatar_url TEXT,
+                    member_count INTEGER DEFAULT 0,
+                    created_by INTEGER NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (created_by) REFERENCES users (id)
+                );
+                
+                CREATE TABLE IF NOT EXISTS group_members (
+                    group_id TEXT NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    role TEXT DEFAULT 'member',
+                    joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (group_id, user_id),
+                    FOREIGN KEY (group_id) REFERENCES groups (id),
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                );
+                
+                CREATE TABLE IF NOT EXISTS group_contacts (
+                    user_id INTEGER NOT NULL,
+                    group_id TEXT NOT NULL,
+                    joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, group_id),
+                    FOREIGN KEY (user_id) REFERENCES users (id),
+                    FOREIGN KEY (group_id) REFERENCES groups (id)
+                );
+                
+                CREATE TABLE IF NOT EXISTS group_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id TEXT NOT NULL,
+                    sender_id INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    message_type TEXT DEFAULT 'text',
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (group_id) REFERENCES groups (id),
+                    FOREIGN KEY (sender_id) REFERENCES users (id)
+                );
+            ",
+            kind: MigrationKind::Up,
         }
     ];
 

@@ -1,5 +1,5 @@
 import Database from '@tauri-apps/plugin-sql';
-import { User, Message, Contact, AuthToken } from '../types';
+import { User, Message, Contact, AuthToken, Group, GroupMember, GroupContact } from '../types';
 
 class DatabaseService {
   private db: Database | null = null;
@@ -246,6 +246,141 @@ class DatabaseService {
     await db.execute('DELETE FROM contacts');
     await db.execute('DELETE FROM users');
     await db.execute('DELETE FROM auth_tokens');
+    await db.execute('DELETE FROM groups');
+    await db.execute('DELETE FROM group_members');
+    await db.execute('DELETE FROM group_contacts');
+    await db.execute('DELETE FROM group_messages');
+  }
+
+  // 群聊相关操作
+  async saveGroup(group: Group): Promise<void> {
+    const db = this.ensureDb();
+    await db.execute(
+      `INSERT OR REPLACE INTO groups (id, name, description, avatar_url, member_count, created_by, created_at) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [group.id, group.name, group.description, group.avatar_url, group.member_count, group.created_by, group.created_at]
+    );
+  }
+
+  async getGroup(id: string): Promise<Group | null> {
+    const db = this.ensureDb();
+    const result = await db.select<Group[]>(
+      'SELECT * FROM groups WHERE id = ?',
+      [id]
+    );
+    return result.length > 0 ? result[0] : null;
+  }
+
+  async getAllGroups(): Promise<Group[]> {
+    const db = this.ensureDb();
+    return await db.select<Group[]>('SELECT * FROM groups ORDER BY name');
+  }
+
+  async saveGroupMember(member: GroupMember): Promise<void> {
+    const db = this.ensureDb();
+    await db.execute(
+      `INSERT OR REPLACE INTO group_members (group_id, user_id, role, joined_at) 
+       VALUES (?, ?, ?, ?)`,
+      [member.group_id, member.user_id, member.role, member.joined_at]
+    );
+  }
+
+  async getGroupMembers(groupId: string): Promise<GroupMember[]> {
+    const db = this.ensureDb();
+    return await db.select<GroupMember[]>(
+      `SELECT gm.*, u.username, u.avatar_url, u.status
+       FROM group_members gm
+       JOIN users u ON gm.user_id = u.id
+       WHERE gm.group_id = ?
+       ORDER BY gm.joined_at`,
+      [groupId]
+    );
+  }
+
+  async removeGroupMember(groupId: string, userId: number): Promise<void> {
+    const db = this.ensureDb();
+    await db.execute(
+      'DELETE FROM group_members WHERE group_id = ? AND user_id = ?',
+      [groupId, userId]
+    );
+  }
+
+  async isGroupMember(groupId: string, userId: number): Promise<boolean> {
+    const db = this.ensureDb();
+    const result = await db.select<{ count: number }[]>(
+      'SELECT COUNT(*) as count FROM group_members WHERE group_id = ? AND user_id = ?',
+      [groupId, userId]
+    );
+    return (result[0]?.count || 0) > 0;
+  }
+
+  async saveGroupContact(contact: GroupContact): Promise<void> {
+    const db = this.ensureDb();
+    await db.execute(
+      'INSERT OR REPLACE INTO group_contacts (user_id, group_id, joined_at) VALUES (?, ?, ?)',
+      [contact.user_id, contact.group_id, contact.joined_at]
+    );
+  }
+
+  async getGroupContacts(userId: number): Promise<GroupContact[]> {
+    const db = this.ensureDb();
+    return await db.select<GroupContact[]>(
+      `SELECT gc.*, g.name, g.description, g.avatar_url, g.member_count, g.created_by, g.created_at
+       FROM group_contacts gc
+       JOIN groups g ON gc.group_id = g.id
+       WHERE gc.user_id = ?
+       ORDER BY g.name`,
+      [userId]
+    );
+  }
+
+  async removeGroupContact(userId: number, groupId: string): Promise<void> {
+    const db = this.ensureDb();
+    await db.execute(
+      'DELETE FROM group_contacts WHERE user_id = ? AND group_id = ?',
+      [userId, groupId]
+    );
+  }
+
+  async saveGroupMessage(message: Message): Promise<void> {
+    const db = this.ensureDb();
+    await db.execute(
+      `INSERT OR REPLACE INTO group_messages 
+       (id, sender_id, group_id, content, message_type, timestamp, is_read) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        message.id,
+        message.sender_id,
+        message.receiver_id, // 在群聊中，receiver_id 存储群聊ID
+        message.content,
+        message.message_type,
+        message.timestamp,
+        message.is_read
+      ]
+    );
+  }
+
+  async getGroupMessages(groupId: string, limit: number = 50, offset: number = 0): Promise<Message[]> {
+    const db = this.ensureDb();
+    return await db.select<Message[]>(
+      `SELECT * FROM group_messages 
+       WHERE group_id = ?
+       ORDER BY timestamp DESC 
+       LIMIT ? OFFSET ?`,
+      [groupId, limit, offset]
+    );
+  }
+
+  async getLatestGroupMessage(groupId: string): Promise<Message | null> {
+    const db = this.ensureDb();
+    const result = await db.select<Message[]>(
+      `SELECT * FROM group_messages 
+       WHERE group_id = ?
+       ORDER BY timestamp DESC 
+       LIMIT 1`,
+      [groupId]
+    );
+    return result.length > 0 ? result[0] : null;
   }
 
   // 数据库统计
@@ -253,19 +388,25 @@ class DatabaseService {
     userCount: number;
     messageCount: number;
     contactCount: number;
+    groupCount: number;
+    groupMessageCount: number;
   }> {
     const db = this.ensureDb();
     
-    const [userResult, messageResult, contactResult] = await Promise.all([
+    const [userResult, messageResult, contactResult, groupResult, groupMessageResult] = await Promise.all([
       db.select<{ count: number }[]>('SELECT COUNT(*) as count FROM users'),
       db.select<{ count: number }[]>('SELECT COUNT(*) as count FROM messages'),
-      db.select<{ count: number }[]>('SELECT COUNT(*) as count FROM contacts')
+      db.select<{ count: number }[]>('SELECT COUNT(*) as count FROM contacts'),
+      db.select<{ count: number }[]>('SELECT COUNT(*) as count FROM groups'),
+      db.select<{ count: number }[]>('SELECT COUNT(*) as count FROM group_messages')
     ]);
 
     return {
       userCount: userResult[0]?.count || 0,
       messageCount: messageResult[0]?.count || 0,
-      contactCount: contactResult[0]?.count || 0
+      contactCount: contactResult[0]?.count || 0,
+      groupCount: groupResult[0]?.count || 0,
+      groupMessageCount: groupMessageResult[0]?.count || 0
     };
   }
 }

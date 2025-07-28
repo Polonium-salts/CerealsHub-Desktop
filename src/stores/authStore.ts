@@ -13,6 +13,7 @@ interface AuthState {
   token: string | null;
   refreshToken: string | null;
   isLoading: boolean;
+  networkLoading: boolean;
   error: string | null;
 
   // 动作
@@ -36,11 +37,12 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       refreshToken: null,
       isLoading: false,
+      networkLoading: false,
       error: null,
 
       // 登录
       login: async (username: string, password: string) => {
-        set({ isLoading: true, error: null });
+        set({ isLoading: true, networkLoading: true, error: null });
         
         try {
           // 添加测试账户支持
@@ -63,6 +65,7 @@ export const useAuthStore = create<AuthState>()(
               token: testToken,
               refreshToken: 'test_refresh_token',
               isLoading: false,
+              networkLoading: false,
               error: null
             });
             
@@ -95,6 +98,7 @@ export const useAuthStore = create<AuthState>()(
               token: testToken2,
               refreshToken: 'test_refresh_token_2',
               isLoading: false,
+              networkLoading: false,
               error: null
             });
             
@@ -116,6 +120,7 @@ export const useAuthStore = create<AuthState>()(
             token: response.access_token,
             refreshToken: response.refresh_token,
             isLoading: false,
+            networkLoading: false,
             error: null
           });
 
@@ -155,6 +160,7 @@ export const useAuthStore = create<AuthState>()(
           const errorMessage = error.response?.data?.message || error.message || '登录失败';
           set({ 
             isLoading: false, 
+            networkLoading: false,
             error: errorMessage,
             isAuthenticated: false,
             user: null,
@@ -168,7 +174,7 @@ export const useAuthStore = create<AuthState>()(
 
       // GitHub登录
       loginWithGitHub: async (code: string) => {
-        set({ isLoading: true, error: null });
+        set({ isLoading: true, networkLoading: true, error: null });
         
         try {
           const response: AuthResponse = await apiService.loginWithGitHub(code);
@@ -180,6 +186,7 @@ export const useAuthStore = create<AuthState>()(
             token: response.access_token,
             refreshToken: response.refresh_token,
             isLoading: false,
+            networkLoading: false,
             error: null
           });
 

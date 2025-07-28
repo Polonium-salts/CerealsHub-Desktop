@@ -1,4 +1,11 @@
-import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import axios, { AxiosInstance, AxiosResponse, AxiosRequestConfig } from 'axios';
+
+// 扩展AxiosRequestConfig接口，以支持自定义的重试配置
+interface CustomAxiosRequestConfig extends AxiosRequestConfig {
+  retry?: number;
+  retryDelay?: number;
+  retryCount?: number;
+}
 import { jwtDecode } from 'jwt-decode';
 import { 
   User, 
@@ -9,22 +16,49 @@ import {
   Contact,
   Message,
   PaginationParams,
-  PaginatedResponse
+  PaginatedResponse,
+  Group,
+  GroupMember,
+  GroupContact
 } from '../types';
 import { useAuthStore } from '../stores/authStore';
-import { OAUTH_CONFIG } from '../config/oauth';
+import { OAUTH_CONFIG, config } from '../config/oauth';
+import { MockBackendService } from './mockBackend';
 
 class ApiService {
   private api: AxiosInstance;
-  private baseURL = 'https://capi.cereals.fun';
 
   constructor() {
     this.api = axios.create({
-      baseURL: this.baseURL,
+      baseURL: config.apiBaseUrl,
       timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
       },
+      // 启用重试机制
+      retry: 3,
+      retryDelay: 1000,
+    });
+
+    // 添加重试拦截器
+    this.api.interceptors.response.use(undefined, async (err) => {
+      const config = err.config as CustomAxiosRequestConfig;
+      if (!config || !config.retry) {
+        return Promise.reject(err);
+      }
+      config.retryCount = config.retryCount || 0;
+      
+      if (config.retryCount >= config.retry) {
+        return Promise.reject(err);
+      }
+      
+      config.retryCount += 1;
+      const delayRetry = new Promise(resolve => {
+        setTimeout(resolve, config.retryDelay || 1000);
+      });
+      
+      await delayRetry;
+      return this.api(config);
     });
 
     // 请求拦截器 - 添加认证token
@@ -101,9 +135,15 @@ class ApiService {
   }
 
   // GitHub OAuth登录
+  // 使用模拟后端处理GitHub OAuth流程
   async loginWithGitHub(code: string): Promise<AuthResponse> {
-    const response: AxiosResponse<ApiResponse<AuthResponse>> = await this.api.post('/auth/github', { code });
-    return response.data.data!;
+    try {
+      // 使用模拟后端服务处理GitHub OAuth
+      return await MockBackendService.handleGitHubOAuth(code);
+    } catch (error: any) {
+      console.error('GitHub login error:', error);
+      throw new Error(error.message || 'GitHub登录失败');
+    }
   }
 
   // 获取GitHub OAuth授权URL
@@ -182,6 +222,51 @@ class ApiService {
       },
     });
     
+    return response.data.data!;
+  }
+
+  // 群聊相关
+  async getGroups(): Promise<Group[]> {
+    const response: AxiosResponse<ApiResponse<Group[]>> = await this.api.get('/groups');
+    return response.data.data!;
+  }
+
+  async joinGroup(groupId: string): Promise<GroupMember> {
+    const response: AxiosResponse<ApiResponse<GroupMember>> = await this.api.post(`/group/${groupId}/join`);
+    return response.data.data!;
+  }
+
+  async leaveGroup(groupId: string): Promise<void> {
+    await this.api.post(`/group/${groupId}/leave`);
+  }
+
+  async getGroupMembers(groupId: string): Promise<GroupMember[]> {
+    const response: AxiosResponse<ApiResponse<GroupMember[]>> = await this.api.get(`/group/${groupId}/members`);
+    return response.data.data!;
+  }
+
+  async getGroupInfo(groupId: string): Promise<Group> {
+    const response: AxiosResponse<ApiResponse<Group>> = await this.api.get(`/group/${groupId}`);
+    return response.data.data!;
+  }
+
+  // 发送群聊消息
+  async sendGroupMessage(groupId: string, content: string, messageType: 'text' | 'image' | 'file' = 'text'): Promise<Message> {
+    const response: AxiosResponse<ApiResponse<Message>> = await this.api.post('/messages', {
+      receiver_id: groupId,
+      content,
+      message_type: messageType,
+      type: 'group'
+    });
+    return response.data.data!;
+  }
+
+  // 获取群聊消息
+  async getGroupMessages(groupId: string, params?: PaginationParams): Promise<PaginatedResponse<Message>> {
+    const response: AxiosResponse<ApiResponse<PaginatedResponse<Message>>> = await this.api.get(
+      `/group/${groupId}/messages`, 
+      { params }
+    );
     return response.data.data!;
   }
 

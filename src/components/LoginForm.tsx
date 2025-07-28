@@ -8,7 +8,7 @@ interface LoginFormProps {
 }
 
 const LoginForm: React.FC<LoginFormProps> = ({ className = '' }) => {
-  const { login, loginWithGitHub, register, isLoading, error, clearError } = useAuthStore();
+  const { login, loginWithGitHub, register, isLoading, networkLoading, error, clearError } = useAuthStore();
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [formData, setFormData] = useState({
     username: '',
@@ -171,7 +171,12 @@ const LoginForm: React.FC<LoginFormProps> = ({ className = '' }) => {
           )}
 
           {/* 表单 */}
-          <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-6 relative">
+          {networkLoading && (
+            <div className="absolute inset-0 bg-white bg-opacity-50 flex items-center justify-center z-10">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+            </div>
+          )}
             {/* 用户名 */}
             <div className="form-control">
               <label className="label">
