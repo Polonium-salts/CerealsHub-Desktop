@@ -24,6 +24,7 @@ import {
 import { useAuthStore } from '../stores/authStore';
 import { OAUTH_CONFIG, config } from '../config/oauth';
 import { MockBackendService } from './mockBackend';
+import { supabase, SupabaseAuthService } from './supabaseClient';
 
 class ApiService {
   private api: AxiosInstance;
@@ -61,7 +62,12 @@ class ApiService {
       return this.api(config);
     });
 
-    // 请求拦截器 - 添加认证token
+    this.setupInterceptors();
+  }
+
+  // 请求拦截器
+  private setupInterceptors() {
+    // 请求拦截器
     this.api.interceptors.request.use(
       (config) => {
         const token = useAuthStore.getState().token;
@@ -75,21 +81,30 @@ class ApiService {
       }
     );
 
-    // 响应拦截器 - 处理token过期
+    // 响应拦截器
     this.api.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        return response;
+      },
       async (error) => {
         const originalRequest = error.config;
         
+        // 如果是401错误且不是刷新令牌请求
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
           
           try {
-            await this.refreshToken();
-            const token = useAuthStore.getState().token;
-            originalRequest.headers.Authorization = `Bearer ${token}`;
+            // 尝试刷新令牌
+            const newToken = await this.refreshToken();
+            
+            // 更新存储的令牌
+            useAuthStore.getState().setToken(newToken);
+            
+            // 重试原始请求
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
             return this.api(originalRequest);
           } catch (refreshError) {
+            // 刷新令牌失败，执行登出
             useAuthStore.getState().logout();
             return Promise.reject(refreshError);
           }
@@ -102,13 +117,61 @@ class ApiService {
 
   // 认证相关
   async login(credentials: LoginRequest): Promise<AuthResponse> {
-    const response: AxiosResponse<ApiResponse<AuthResponse>> = await this.api.post('/auth/login', credentials);
-    return response.data.data!;
+    // 使用Supabase认证
+    // 注意：我们将credentials.usernameOrEmail传递给SupabaseAuthService.login方法
+    // 该方法会自动判断是邮箱还是用户名并进行相应处理
+    const { user, error } = await SupabaseAuthService.login(credentials.usernameOrEmail, credentials.password);
+    
+    if (error) {
+      // 直接抛出经过处理的具体错误信息
+      throw error;
+    }
+    
+    if (!user) {
+      throw new Error('登录失败');
+    }
+    
+    // 获取Supabase会话令牌
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    // 确保session存在
+    if (!session) {
+      throw new Error('无法获取会话信息');
+    }
+    
+    const authResponse: AuthResponse = {
+      user,
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      expires_in: session.expires_in || 3600,
+    };
+    
+    return authResponse;
   }
 
   async register(userData: RegisterRequest): Promise<AuthResponse> {
-    const response: AxiosResponse<ApiResponse<AuthResponse>> = await this.api.post('/auth/register', userData);
-    return response.data.data!;
+    // 使用Supabase认证
+    const { user, error } = await SupabaseAuthService.register(userData.username, userData.password, userData.email);
+    
+    if (error) {
+      throw error;
+    }
+    
+    if (!user) {
+      throw new Error('注册失败');
+    }
+    
+    // 获取Supabase会话令牌
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    const authResponse: AuthResponse = {
+      user,
+      access_token: session?.access_token || '',
+      refresh_token: session?.refresh_token || '',
+      expires_in: session?.expires_in || 3600,
+    };
+    
+    return authResponse;
   }
 
   async refreshToken(): Promise<string> {
@@ -126,24 +189,59 @@ class ApiService {
     return newToken;
   }
 
+  // 监听认证状态变化
+  onAuthStateChange(callback: (event: string, session: any) => void) {
+    return supabase.auth.onAuthStateChange(callback);
+  }
+
+  // GitHub登录
+  async signInWithGitHub(options: { redirectTo: string }) {
+    return await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options
+    });
+  }
+
   async logout(): Promise<void> {
     try {
-      await this.api.post('/auth/logout');
+      // 使用Supabase认证登出
+      await SupabaseAuthService.logout();
     } catch (error) {
       console.error('Logout error:', error);
     }
   }
 
-  // GitHub OAuth登录
-  // 使用模拟后端处理GitHub OAuth流程
+  // GitHub登录
   async loginWithGitHub(code: string): Promise<AuthResponse> {
-    try {
-      // 使用模拟后端服务处理GitHub OAuth
-      return await MockBackendService.handleGitHubOAuth(code);
-    } catch (error: any) {
-      console.error('GitHub login error:', error);
-      throw new Error(error.message || 'GitHub登录失败');
-    }
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: {
+          code
+        }
+      }
+    });
+    
+    if (error) throw error;
+    
+    // Supabase会自动重定向到GitHub进行认证
+    // 认证完成后会重定向回应用
+    // 这里返回一个临时的响应，实际的用户信息会在回调中处理
+    return {
+      user: {
+        id: '',
+        username: '',
+        email: '',
+        avatar: '',
+        created_at: new Date().toISOString(),
+        last_login: new Date().toISOString()
+      },
+      access_token: '',
+      refresh_token: '',
+      expires_in: 0,
+      token_type: 'bearer'
+    };
   }
 
   // 获取GitHub OAuth授权URL

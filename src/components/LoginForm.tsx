@@ -2,77 +2,130 @@ import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { LoginRequest, RegisterRequest } from '../types';
 import { apiService } from '../services/api';
+import { supabase } from '../services/supabaseClient';
+import { notificationService } from '../services/notification';
 
 interface LoginFormProps {
   className?: string;
 }
 
 const LoginForm: React.FC<LoginFormProps> = ({ className = '' }) => {
-  const { login, loginWithGitHub, register, isLoading, networkLoading, error, clearError } = useAuthStore();
+  const { login, loginWithGitHub, register, isLoading, networkLoading, error, clearError, setToken } = useAuthStore();
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [formData, setFormData] = useState({
-    username: '',
+    email: '',
     password: '',
     confirmPassword: '',
-    email: ''
+    username: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-  // 处理GitHub OAuth回调
+  // 处理Supabase认证状态变化
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get('code');
-    const state = urlParams.get('state');
-    
-    if (code && state === 'github_oauth') {
-      // 立即清除URL参数，防止重复处理
-      window.history.replaceState({}, document.title, window.location.pathname);
-      handleGitHubCallback(code);
-    }
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        try {
+          // 获取用户信息
+          const user = {
+            id: session.user.id,
+            username: session.user.user_metadata?.user_name || session.user.email?.split('@')[0] || session.user.id,
+            email: session.user.email || '',
+            avatar: session.user.user_metadata?.avatar_url || '',
+            created_at: session.user.created_at,
+            last_login: new Date().toISOString()
+          };
+          
+          // 更新认证状态
+          useAuthStore.setState({
+            isAuthenticated: true,
+            user: user,
+            token: session.access_token,
+            refreshToken: session.refresh_token
+          });
+          
+          notificationService.showSuccessNotification('登录成功！');
+        } catch (err: any) {
+          const errorMessage = err.message || '处理登录回调失败';
+          useAuthStore.setState({ error: errorMessage });
+          notificationService.showErrorNotification(errorMessage);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        // 用户登出
+        useAuthStore.setState({
+          isAuthenticated: false,
+          user: null,
+          token: null,
+          refreshToken: null
+        });
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
-  // 处理GitHub OAuth回调
-  const handleGitHubCallback = async (code: string) => {
-    try {
-      await loginWithGitHub(code);
-    } catch (error) {
-      console.error('GitHub login failed:', error);
-    }
-  };
-
   // 处理GitHub登录
-  const handleGitHubLogin = () => {
-    const authUrl = apiService.getGitHubAuthUrl();
-    window.location.href = authUrl;
+  const handleGitHubLogin = async () => {
+    useAuthStore.setState({ isLoading: true, error: null });
+    
+    try {
+      // 调用GitHub OAuth登录
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: window.location.origin
+        }
+      });
+      
+      if (error) throw error;
+      
+      // 成功后会自动重定向到GitHub进行认证
+      // 认证完成后会重定向回应用
+      notificationService.showSuccessNotification('正在跳转到GitHub登录...');
+    } catch (err: any) {
+      const errorMessage = err.message || 'GitHub登录失败';
+      useAuthStore.setState({ error: errorMessage });
+      notificationService.showErrorNotification(errorMessage);
+    }
   };
 
   // 表单验证
   const validateForm = () => {
     const errors: Record<string, string> = {};
 
-    if (!formData.username.trim()) {
-      errors.username = '用户名不能为空';
-    } else if (formData.username.length < 3) {
-      errors.username = '用户名至少需要3个字符';
-    }
-
-    if (!formData.password) {
-      errors.password = '密码不能为空';
-    } else if (formData.password.length < 6) {
-      errors.password = '密码至少需要6个字符';
-    }
-
     if (isRegisterMode) {
+      // 注册模式验证
+      if (!formData.username.trim()) {
+        errors.username = '用户名不能为空';
+      } else if (formData.username.length < 3) {
+        errors.username = '用户名至少需要3个字符';
+      }
+      
       if (!formData.email.trim()) {
         errors.email = '邮箱不能为空';
       } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
         errors.email = '请输入有效的邮箱地址';
       }
-
+      
       if (formData.password !== formData.confirmPassword) {
         errors.confirmPassword = '两次输入的密码不一致';
       }
+    } else {
+      // 登录模式验证
+      if (!formData.email.trim()) {
+        errors.email = '邮箱不能为空';
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+        errors.email = '请输入有效的邮箱地址';
+      }
+    }
+
+    // 密码验证（两种模式都需要）
+    if (!formData.password) {
+      errors.password = '密码不能为空';
+    } else if (formData.password.length < 6) {
+      errors.password = '密码至少需要6个字符';
     }
 
     setValidationErrors(errors);
@@ -106,6 +159,8 @@ const LoginForm: React.FC<LoginFormProps> = ({ className = '' }) => {
       return;
     }
 
+    useAuthStore.setState({ isLoading: true, error: null });
+    
     try {
       if (isRegisterMode) {
         const registerData: RegisterRequest = {
@@ -115,14 +170,19 @@ const LoginForm: React.FC<LoginFormProps> = ({ className = '' }) => {
         };
         await register(registerData.username, registerData.password, registerData.email);
       } else {
+        // 使用邮箱登录
         const loginData: LoginRequest = {
-          username: formData.username.trim(),
+          usernameOrEmail: formData.email.trim(),
           password: formData.password
         };
-        await login(loginData.username, loginData.password);
+        await login(loginData.usernameOrEmail, loginData.password);
       }
-    } catch {
-      // 错误已经在store中处理
+    } catch (err: any) {
+      const errorMessage = err.message || (isRegisterMode ? '注册失败' : '登录失败');
+      useAuthStore.setState({ error: errorMessage });
+      notificationService.showErrorNotification(errorMessage);
+    } finally {
+      useAuthStore.setState({ isLoading: false });
     }
   };
 
@@ -177,7 +237,8 @@ const LoginForm: React.FC<LoginFormProps> = ({ className = '' }) => {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
             </div>
           )}
-            {/* 用户名 */}
+            {/* 用户名 (仅注册模式) */}
+          {isRegisterMode && (
             <div className="form-control">
               <label className="label">
                 <span className="label-text">用户名</span>
@@ -198,30 +259,29 @@ const LoginForm: React.FC<LoginFormProps> = ({ className = '' }) => {
                 </label>
               )}
             </div>
+          )}
 
-            {/* 邮箱 (仅注册模式) */}
-            {isRegisterMode && (
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">邮箱</span>
-                </label>
-                <input
-                  type="email"
-                  className={`input input-bordered w-full ${
-                    validationErrors.email ? 'input-error' : ''
-                  }`}
-                  placeholder="请输入邮箱地址"
-                  value={formData.email}
-                  onChange={(e) => handleInputChange('email', e.target.value)}
-                  disabled={isLoading}
-                />
-                {validationErrors.email && (
-                  <label className="label">
-                    <span className="label-text-alt text-error">{validationErrors.email}</span>
-                  </label>
-                )}
-              </div>
+          {/* 邮箱 */}
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text">邮箱</span>
+            </label>
+            <input
+              type="email"
+              className={`input input-bordered w-full ${
+                validationErrors.email ? 'input-error' : ''
+              }`}
+              placeholder="请输入邮箱地址"
+              value={formData.email}
+              onChange={(e) => handleInputChange('email', e.target.value)}
+              disabled={isLoading}
+            />
+            {validationErrors.email && (
+              <label className="label">
+                <span className="label-text-alt text-error">{validationErrors.email}</span>
+              </label>
             )}
+          </div>
 
             {/* 密码 */}
             <div className="form-control">

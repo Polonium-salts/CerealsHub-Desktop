@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Message, Contact, ChatSession, Notification, Group, GroupContact, GroupMember } from '../types';
+import { Message, Contact, ChatSession, Notification, Group, GroupContact } from '../types';
 import { databaseService } from '../services/database';
 import { apiService } from '../services/api';
 import { notificationService } from '../services/notification';
@@ -358,7 +358,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // 在浏览器模式下，创建一个空的会话
       if (error instanceof Error && error.message.includes('Database operations not available')) {
         const emptySession: ChatSession = {
-          contact: { id: contactId, username: `User ${contactId}`, avatar_url: '', status: 'offline', created_at: new Date().toISOString() },
+          contact: { id: typeof contactId === 'string' ? parseInt(contactId) : contactId, username: `User ${contactId}`, avatar_url: '', status: 'offline', created_at: new Date().toISOString() },
           messages: [],
           unreadCount: 0,
           lastMessage: undefined,

@@ -72,7 +72,8 @@ export interface AuthToken {
 
 // 登录请求类型
 export interface LoginRequest {
-  username: string;
+  // 可以是用户名或邮箱
+  usernameOrEmail: string;
   password: string;
 }
 
